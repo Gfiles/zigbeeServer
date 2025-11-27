@@ -1,2 +1,2 @@
-# zigbeeServer
-Web Based Zigbee Server to control devices in a closed network
+# tuyaSwitchApi
+Flask restful App to control tuya switch over api requests
