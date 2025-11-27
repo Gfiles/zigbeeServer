@@ -156,7 +156,7 @@
                                 <input
                                     class="w3-input w3-border w3-round device-solution"
                                     type="text"
-                                    name="device_solution_{{ loop.index0 }}"
+                                    name="device_solution_{{ device.id }}"
                                     value="{{ device.solution }}"
                                 />
                                 <a href="/delete_device/{{ device.id }}" class="w3-button w3-red w3-round delete-btn" onclick="return confirm('Are you sure you want to delete this device? It will be removed from all schedules and exclusions.');">

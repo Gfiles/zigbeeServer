@@ -29,6 +29,13 @@
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Set the timezone offset when the page loads so the server can convert to UTC
+            const offsetMinutes = new Date().getTimezoneOffset();
+            const offsetInput = document.getElementById('timezone-offset-input');
+            if (offsetInput) {
+                offsetInput.value = offsetMinutes;
+            }
+
             checkInternetQuality();
         });
 
@@ -155,6 +162,9 @@
             </div>
             <button type="button" class="w3-button w3-green" onclick="addSchedule()">Create</button>
             <br/><br/>
+
+            <!-- Hidden input to hold the client's timezone offset in minutes -->
+            <input type="hidden" name="timezone_offset" id="timezone-offset-input" value="0">
             
             <button type="submit" class="w3-button w3-blue">Save Schedules</button>
         </form>

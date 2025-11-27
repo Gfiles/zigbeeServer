@@ -3,7 +3,6 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="refresh" content="60">
         <link rel="stylesheet" href="https://www.w3schools.com/w3css/5/w3.css">
         <title>{{ title }} - Switches</title>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -41,6 +40,7 @@
         </style>
         <script>
             document.addEventListener('DOMContentLoaded', function() {
+                checkForUpdates();
                 checkInternetQuality();
             });
 
@@ -67,6 +67,20 @@
                 if (confirm("Are you sure you want to toggle this switch?")) {
                     window.location.href = "/toggle/" + device_id;
                 }
+            }
+
+            function checkForUpdates() {
+                const pageLoadTime = '{{ last_update }}';
+                setInterval(() => {
+                    fetch('/check-for-updates')
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.last_update && data.last_update > pageLoadTime) {
+                                window.location.reload();
+                            }
+                        })
+                        .catch(error => console.error('Error checking for updates:', error));
+                }, 3000); // Poll every 3 seconds
             }
         </script>
     </head>

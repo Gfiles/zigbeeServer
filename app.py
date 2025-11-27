@@ -15,7 +15,7 @@ from uuid import uuid4
 from flask import Flask, render_template, request, jsonify, redirect #pip install Flask
 from flask_restful import Resource, Api #pip install Flask-RESTful
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import sys
 import jinja2
@@ -50,6 +50,7 @@ app = Flask(__name__)
 api = Api(app)
 mqtt_client = None
 mqtt_connection_error = None
+LAST_UPDATE_TIMESTAMP = datetime.now()
 
 # ---------- End Configurations ---------- #
 # ---------- Start Classes ---------- #
@@ -105,7 +106,7 @@ def index():
             device.get("voltage", 0),
             device.get("id", "")
         ])
-    return render_template("index.html", switches=switchInfo, title=title, minButtonWidth=minButtonWidth, mqtt_error=mqtt_connection_error)
+    return render_template("index.html", switches=switchInfo, title=title, minButtonWidth=minButtonWidth, mqtt_error=mqtt_connection_error, last_update=LAST_UPDATE_TIMESTAMP.isoformat())
 
 # Route for toggling a switch
 @app.route("/toggle/<pk>")
@@ -174,6 +175,7 @@ def settings():
         for device in current_devices:
             solution_key = f"device_solution_{device['id']}"
             if solution_key in request.form:
+                #print(f"Updating device {device['id']} solution to {request.form[solution_key]}")
                 update_device_solution(device['id'], request.form[solution_key])
 
         # Update 'exclude_from_all' list
@@ -220,6 +222,7 @@ def schedule():
         schedule_names = request.form.getlist("schedule_name")
         schedule_actions = request.form.getlist("schedule_action")
         schedule_times = request.form.getlist("schedule_time")
+        timezone_offset_minutes = int(request.form.get('timezone_offset', 0))
 
         for i in range(len(schedule_ids)):
             sid = schedule_ids[i]
@@ -230,12 +233,19 @@ def schedule():
             days = request.form.getlist(f"schedule_days_{i}")
             time_str = schedule_times[i]
             device_list = request.form.getlist(f"schedule_devices_{i}")
+            
+            # Correctly convert user's local time to UTC using the browser's offset
+            local_dt = datetime.strptime(time_str, '%H:%M')
+            # getTimezoneOffset() returns a positive value for timezones BEHIND UTC (e.g., Brazil), so we must ADD the offset to get to UTC.
+            utc_dt = local_dt + timedelta(minutes=timezone_offset_minutes)
+            utc_time_str = utc_dt.strftime('%H:%M') # Use the converted UTC time
+            print(f"Received local time {time_str} with offset {timezone_offset_minutes} mins. Converted to UTC: {utc_time_str}")
             schedules.append({
                 "id": sid,
                 "name": name,
                 "action": action,
                 "days": days,
-                "time": time_str,
+                "time": utc_time_str, # Use the converted UTC time
                 "devices": device_list
             })
         
@@ -260,6 +270,11 @@ def schedule():
     # GET method: show schedules and devices
     schedules = get_schedules_from_db()
     return render_template("schedule.html", schedules=schedules, devices=devices, title="Schedule Configuration")
+
+@app.route("/check-for-updates")
+def check_for_updates():
+    """Endpoint for the client to check if a refresh is needed."""
+    return jsonify({'last_update': LAST_UPDATE_TIMESTAMP.isoformat()})
 
 # ---------- End Routing Functions ---------- #
 # ---------- Start Functions ---------- #
@@ -292,10 +307,6 @@ def updateApScheduler():
     This function should be called whenever schedules are modified.
     """
     scheduler.remove_all_jobs()
-    # create scheduler to run every 5 minutes
-    # scheduler.add_job(func=updateSwitches, trigger="interval", minutes=int(refresh)) # No longer needed, state is pushed
-    # create schedluer to run once a day
-    scheduler.add_job(func=scan_and_save_new_devices, trigger="interval", hours=int(refresh))
 
     for schedule in config.get("schedules", []):
         days_of_week = schedule.get('days')
@@ -310,7 +321,7 @@ def updateApScheduler():
             )
         else:
             logging.warning(f"Skipping schedule '{schedule.get('name')}' because no days are configured.")
-
+    #print(scheduler.get_jobs())
     print("Scheduler updated with new schedules.")
     logging.info("Scheduler updated with new schedules.")
 
@@ -319,11 +330,11 @@ def executeSchedule(action, scheduledDevices):
     Executes the action for the given schedule.
     This function should be called by the scheduler.
     """
+    print(f"SCHEDULED: Executing action {action} for devices: {scheduledDevices}")
     for device_id in scheduledDevices:
         # device_id is the friendly_name
         topic = f"{config.get('mqtt_base_topic', 'zigbee2mqtt')}/{device_id}/set"
         payload = json.dumps({"state": action.upper()})
-
         if mqtt_client:
             mqtt_client.publish(topic, payload)
             logging.info(f"SCHEDULED: Published to {topic}: {payload}")
@@ -466,16 +477,16 @@ def get_all_settings():
     return settings_dict
 
 def update_setting(key, value):
-    db = get_db_conn()
-    db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
-    db.commit()
-    db.close()
+    conn = get_db_conn()
+    conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
+    conn.commit()
+    conn.close()
 
 def update_device_solution(device_id, solution):
-    db = get_db_conn()
-    db.execute('UPDATE devices SET solution = ? WHERE id = ?', (solution, device_id))
-    db.commit()
-    db.close()
+    conn = get_db_conn()
+    conn.execute('UPDATE devices SET solution = ? WHERE id = ?', (solution, device_id))
+    conn.commit()
+    conn.close()
 
 def get_schedules_from_db():
     db = get_db_conn()
@@ -557,9 +568,10 @@ mv -f "{tmp_path}" "{exe_path}"
 
 # ---------- MQTT Functions ---------- #
 
-def on_connect(client, userdata, flags, rc):
-    global mqtt_connection_error
-    if rc == 0:
+def on_connect(client, userdata, flags, reason_code, properties):
+    global mqtt_connection_error, LAST_UPDATE_TIMESTAMP
+    # A reason_code of 0 means success.
+    if reason_code == 0:
         print("Connected to MQTT Broker!")
         logging.info("Connected to MQTT Broker!")
         base_topic = config.get('mqtt_base_topic', 'zigbee2mqtt')
@@ -568,13 +580,15 @@ def on_connect(client, userdata, flags, rc):
         logging.info(f"Subscribed to device topics: {base_topic}/+")
 
         mqtt_connection_error = None
+        LAST_UPDATE_TIMESTAMP = datetime.now() # Force refresh on connect/reconnect
     else:
-        print(f"Failed to connect, return code {rc}\n")
-        logging.error(f"Failed to connect to MQTT Broker, return code {rc}")
+        print(f"Failed to connect, return code {reason_code}\n")
+        logging.error(f"Failed to connect to MQTT Broker, return code {reason_code}")
 
 def on_message(client, userdata, msg):
     #print(f"Received `{msg.payload.decode()}` from `{msg.topic}` topic")
     topic_parts = msg.topic.split('/')
+    global LAST_UPDATE_TIMESTAMP
     base_topic = config.get('mqtt_base_topic', 'zigbee2mqtt')
 
     # We are interested in topics like 'zigbee2mqtt/DEVICE_NAME'
@@ -601,16 +615,18 @@ def on_message(client, userdata, msg):
             # Add to the runtime list so it appears immediately
             new_device = {'id': friendly_name, 'name': friendly_name, 'solution': friendly_name, 'state': 'unknown', 'voltage': 0, 'power': 0, 'linkquality': 0}
             devices.append(new_device)
+            LAST_UPDATE_TIMESTAMP = datetime.now() # Trigger refresh for new device
             device = new_device # Use this new device for the rest of the function
         
         try:
             payload = json.loads(msg.payload.decode())
-            
+            #print(f"MQTT Message for {friendly_name}: {payload}")
             # Update state
             if 'state' in payload:
                 new_state = (payload['state'] == 'ON')
                 if device.get('state') != new_state:
                     device['state'] = new_state
+                    LAST_UPDATE_TIMESTAMP = datetime.now()
                     #print(f"State of {friendly_name} updated to {device['state']}")
             
             # Update other attributes
@@ -627,8 +643,9 @@ def on_message(client, userdata, msg):
             if payload_str.upper() in ['ON', 'OFF']:
                  new_state = (payload_str.upper() == 'ON')
                  if device.get('state') != new_state:
+                    LAST_UPDATE_TIMESTAMP = datetime.now()
                     device['state'] = new_state
-                    print(f"State of {friendly_name} updated to {device['state']}")
+                    #print(f"State of {friendly_name} updated to {device['state']}")
         except Exception as e:
             logging.error(f"Error processing MQTT message for {friendly_name}: {e}")
 
@@ -648,7 +665,7 @@ def init_mqtt_client():
     user = config.get("mqtt_user")
     password = config.get("mqtt_pass")
 
-    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=f"tuya_server_{uuid4()}")
+    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"tuya_server_{uuid4()}")
     if user and password:
         mqtt_client.username_pw_set(user, password)
     mqtt_client.on_connect = on_connect
@@ -736,7 +753,6 @@ def load_config_from_db():
 
     config = {
         **settings_from_db,
-        "devices": devices,
         "schedules": schedules,
         "exclude_from_all": excluded_devices
     }
@@ -803,7 +819,7 @@ load_config_from_db()
 init_mqtt_client()
 
 #print(devices)
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(timezone="UTC")
 updateApScheduler()
 # Run the scheduler in a separate thread
 Thread(target=start_scheduler).start()
@@ -811,5 +827,5 @@ print("Scheduler Started")
 
 if __name__ == '__main__':
     print(f"Zigbee Server Running on http://localhost:{port}")
-    app.run(host='0.0.0.0', port=port, debug=True)
-    #serve(app, host="0.0.0.0", port=port)
+    # Use waitress for production to avoid scheduler issues with Flask's reloader
+    serve(app, host="0.0.0.0", port=port)
