@@ -36,6 +36,25 @@
                 offsetInput.value = offsetMinutes;
             }
 
+            // Convert displayed times from UTC to the user's local time
+            const timeInputs = document.querySelectorAll('input[name="schedule_time"]');
+            timeInputs.forEach(input => {
+                if (input.value) { // Only convert if there's a pre-filled value
+                    const utcTime = input.value;
+                    const [hours, minutes] = utcTime.split(':').map(Number);
+                    
+                    const now = new Date();
+                    // Create a date object for today, but with the hours and minutes set to the UTC time
+                    const dateInUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours, minutes));
+                    
+                    // The browser's JS engine automatically converts this to the local timezone.
+                    // Now, format it back to HH:MM for the input field.
+                    const localHours = dateInUtc.getHours().toString().padStart(2, '0');
+                    const localMinutes = dateInUtc.getMinutes().toString().padStart(2, '0');
+                    
+                    input.value = `${localHours}:${localMinutes}`;
+                }
+            });
             checkInternetQuality();
         });
 

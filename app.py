@@ -15,7 +15,7 @@ from uuid import uuid4
 from flask import Flask, render_template, request, jsonify, redirect #pip install Flask
 from flask_restful import Resource, Api #pip install Flask-RESTful
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 import sys
 import jinja2
@@ -239,7 +239,7 @@ def schedule():
             # getTimezoneOffset() returns a positive value for timezones BEHIND UTC (e.g., Brazil), so we must ADD the offset to get to UTC.
             utc_dt = local_dt + timedelta(minutes=timezone_offset_minutes)
             utc_time_str = utc_dt.strftime('%H:%M') # Use the converted UTC time
-            print(f"Received local time {time_str} with offset {timezone_offset_minutes} mins. Converted to UTC: {utc_time_str}")
+            #print(f"Received local time {time_str} with offset {timezone_offset_minutes} mins. Converted to UTC: {utc_time_str}")
             schedules.append({
                 "id": sid,
                 "name": name,
@@ -264,6 +264,8 @@ def schedule():
         db.commit()
         db.close()
 
+        # Reload config to get the latest schedules before updating the scheduler
+        load_config_from_db()
         updateApScheduler()
         return redirect("/")
     
