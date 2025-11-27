@@ -1,10 +1,6 @@
 # Install required libraries
 # sudo apt-get install python-crypto python-pip  # for RPi, Linux
 # python3 -m pip install pycryptodome            # or pycrypto or Crypto or pyaes
-# python -m tinytuya scan  #scan to get list of local devices
-# https://pypi.org/project/tinytuya/
-# https://github.com/jasonacox/tinytuya#setup-wizard---getting-local-keys
-# python -m tinytuya wizard (get device id and keys) #Run this command to get the device id and keys
 # https://pimylifeup.com/raspberry-pi-flask-web-app/
 # Windows:
 #  pyinstaller --clean --onefile --add-data "templates*;." --add-data "devices.json;." -n tuyaServer app.py
