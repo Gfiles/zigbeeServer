@@ -119,7 +119,7 @@
         <div class="w3-container w3-center w3-padding-16">
             <form method="POST" class="w3-container w3-card-4 w3-padding w3-white" style="max-width: 90%; margin: auto; border-radius: 10px;">
                 {% for key, value in config.items() %}
-                    {% if key in ['exclude_from_all', 'schedules'] %}
+                    {% if key in ['exclude_from_all', 'schedules', 'open_on_startup'] %}
                         
                     {% else %}
                     <label class="w3-text-teal" for="{{ key }}">{{ key }}</label>
@@ -133,6 +133,17 @@
                     {% endif %}
                 {% endfor %}
                 
+                <!-- Special handling for open_on_startup -->
+                <label class="w3-text-teal" for="open_on_startup">open_on_startup</label>
+                <select class="w3-select w3-border w3-round" id="open_on_startup" name="open_on_startup">
+                    <option value="True" {% if config.get('open_on_startup', 'True') == 'True' %}selected{% endif %}>
+                        Enabled
+                    </option>
+                    <option value="False" {% if config.get('open_on_startup', 'True') == 'False' %}selected{% endif %}>
+                        Disabled
+                    </option>
+                </select>
+
                 {% if devices %}
                     <label class="w3-text-teal">Exclude from 'All On/Off'</label>
                     <div class="exclude-list">

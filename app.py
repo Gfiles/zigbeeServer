@@ -7,7 +7,10 @@
 # Linux:
 # .venv/bin/pyinstaller --clean --onefile --add-data "templates*:." --add-data "devices.json:." -n tuyaServer_deb app.py
 import logging
+import subprocess
+import threading
 from uuid import uuid4
+import webbrowser
 from flask import Flask, render_template, request, jsonify, redirect #pip install Flask
 from flask_restful import Resource, Api #pip install Flask-RESTful
 import json
@@ -23,10 +26,17 @@ from apscheduler.schedulers.background import BackgroundScheduler #pip install a
 from threading import Thread
 import platform
 import shutil
+from PIL import Image #pip install pillow
+
+try:
+    from pystray import Icon as TrayIcon, MenuItem as item, Menu #pip install pystray
+except ValueError:
+     subprocess.run(['sudo', 'apt', 'install', '-y', 'libayatana-appindicator3-1', 'gir1.2-ayatanaappindicator3-0.1'])
 
 # ---------- Start Configurations ---------- #
 VERSION = "2025.11.27"
 print(f"Zigbee Server Version: {VERSION}")
+APP_NAME = "ZigbeeServer"
 
 template_loader = ''
 if getattr(sys, 'frozen', False):
@@ -163,7 +173,7 @@ def settings():
         current_devices = [dict(row) for row in devices_from_db]
 
         # Update general settings
-        for key in ['title', 'refresh', 'port', 'minButtonWidth', 'autoUpdate', 'autoUpdateURL', 'mqtt_host', 'mqtt_port', 'mqtt_user', 'mqtt_pass', 'mqtt_base_topic', 'z2m_url', 'offline_timeout']:
+        for key in ['title', 'refresh', 'port', 'minButtonWidth', 'autoUpdate', 'autoUpdateURL', 'mqtt_host', 'mqtt_port', 'mqtt_user', 'mqtt_pass', 'mqtt_base_topic', 'z2m_url', 'offline_timeout', 'open_on_startup']:
             if key in request.form:
                 # The 'devices' list is reloaded inside load_config_from_db, so we can use it here.
                 update_setting(key, request.form[key])
@@ -421,7 +431,8 @@ def init_db():
         ('mqtt_pass', ''),
         ('mqtt_base_topic', 'zigbee2mqtt'),
         ('z2m_url', 'localhost:8080'),
-        ('offline_timeout', '30')
+        ('offline_timeout', '30'),
+        ('open_on_startup', 'True')
     ]
     cursor.executemany('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', default_settings)
 
@@ -779,6 +790,7 @@ def load_config_from_db():
     settings_from_db.setdefault("mqtt_base_topic", "zigbee2mqtt")
     settings_from_db.setdefault("z2m_url", "")
     settings_from_db.setdefault("offline_timeout", "30")
+    settings_from_db.setdefault("open_on_startup", "True")
 
     # Load devices
     devices_from_db = db.execute('SELECT * FROM devices ORDER BY solution COLLATE NOCASE').fetchall()
@@ -805,6 +817,60 @@ def load_config_from_db():
     }
     db.close()
 
+def exit_action(icon, item):
+    """Function to be called when 'Exit' is clicked."""
+    logging.info("Exit command received. Shutting down.")
+    icon.stop()
+    # A hard exit is the most reliable way to ensure all threads (like waitress) are terminated.
+    os._exit(0)
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+def open_browser():
+    """
+    Opens the dashboard URL in a new browser tab.
+    """
+    dashboard_url = f"http://127.0.0.1:{port}/"
+    if sys.platform.startswith('linux'):
+        subprocess.Popen(['xdg-open', dashboard_url])
+    else:
+        webbrowser.open_new_tab(dashboard_url)
+        
+def run_tray_icon():
+    """Creates and runs the system tray icon."""
+    try:
+        image = Image.open(resource_path("icon.png"))
+        menu = (
+            item(f"Internet Tester: v_{VERSION}", None, enabled=False),
+            Menu.SEPARATOR,
+            item('Open Dashboard', open_browser, default=True),
+            item('Exit', exit_action)
+        )
+        tray_icon = TrayIcon(APP_NAME, image, f"{APP_NAME} v{VERSION}", menu)
+        logging.info("Starting system tray icon.")
+        tray_icon.run()
+    except Exception as e:
+        logging.error(f"Failed to create system tray icon: {e}", exc_info=True)
+
+def run_web_server():
+    """Starts the Flask web server using Waitress."""
+    host = "0.0.0.0"
+    logging.info(f"Starting server on http://{host}:{port}")
+    # The value from DB is a string 'True' or 'False'
+    if config.get("open_on_startup", "True") == "True":
+        logging.info(f"Dashboard will open automatically at: http://127.0.0.1:{port}/")
+        threading.Timer(1, open_browser).start()
+    else:
+        logging.info(f"Dashboard is available at: http://127.0.0.1:{port}/")
+    serve(app, host=host, port=port)
 # ---------- End Functions ---------- #
 
 OS = platform.system()
@@ -874,6 +940,11 @@ Thread(target=start_scheduler).start()
 print("Scheduler Started")
 
 if __name__ == '__main__':
-    print(f"Zigbee Server Running on http://localhost:{port}")
-    # Use waitress for production to avoid scheduler issues with Flask's reloader
-    serve(app, host="0.0.0.0", port=port)
+    if OS == 'Linux':
+        os.environ.setdefault('PYSTRAY_BACKEND', 'appindicator')
+
+    # Run the web server in a separate thread
+    server_thread = threading.Thread(target=run_web_server, daemon=True)
+    server_thread.start()
+    # Run the tray icon in the main thread (pystray must be in the main thread on macOS)
+    run_tray_icon()
