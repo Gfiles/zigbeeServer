@@ -108,7 +108,7 @@
         <div class="w3-flex w3-padding-16" style="flex-direction:row; gap:16px; flex-wrap:wrap; justify-content:center;">
             {% for switch in switches %}
             <button class="tuya-button
-            {% if switch[2] == 'offline' %} 
+            {% if switch[2] == 'offline' or switch[2] == 'unknown' %} 
                 w3-gray btn-off
             {% elif switch[2] %} 
                 w3-green 

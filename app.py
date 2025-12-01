@@ -101,6 +101,7 @@ def index():
             device.get("state", False),
             device.get("voltage", 0),
             device.get("id", "")
+            # The state can be True, False, 'unknown', or 'offline'
         ])
     return render_template("index.html", switches=switchInfo, title=title, minButtonWidth=minButtonWidth, mqtt_error=mqtt_connection_error, last_update=LAST_UPDATE_TIMESTAMP.isoformat())
 
@@ -162,7 +163,7 @@ def settings():
         current_devices = [dict(row) for row in devices_from_db]
 
         # Update general settings
-        for key in ['title', 'refresh', 'port', 'minButtonWidth', 'autoUpdate', 'autoUpdateURL', 'mqtt_host', 'mqtt_port', 'mqtt_user', 'mqtt_pass', 'mqtt_base_topic', 'z2m_url']:
+        for key in ['title', 'refresh', 'port', 'minButtonWidth', 'autoUpdate', 'autoUpdateURL', 'mqtt_host', 'mqtt_port', 'mqtt_user', 'mqtt_pass', 'mqtt_base_topic', 'z2m_url', 'offline_timeout']:
             if key in request.form:
                 # The 'devices' list is reloaded inside load_config_from_db, so we can use it here.
                 update_setting(key, request.form[key])
@@ -341,6 +342,18 @@ def executeSchedule(action, scheduledDevices):
             logging.error(f"SCHEDULED: MQTT client not available, cannot control {device_id}.")
             print(f"SCHEDULED: Error executing action {action} on device {device_id}: MQTT client not available.")
 
+def check_offline_devices():
+    """Checks for devices that have not sent an update recently and marks them as offline."""
+    global devices, LAST_UPDATE_TIMESTAMP, config
+    now = datetime.now()
+    # Use a default of 30 seconds if the setting is missing
+    timeout_seconds = int(config.get('offline_timeout', 30))
+    for device in devices:
+        if now - device.get('last_seen', now) > timedelta(seconds=timeout_seconds):
+            if device['state'] != 'offline':
+                device['state'] = 'offline'
+                LAST_UPDATE_TIMESTAMP = datetime.now()
+
 def sortDevicesByName(newDict):
     """
     Sorts the devices list by the 'solution' key.
@@ -378,7 +391,8 @@ def init_db():
         ('mqtt_user', ''),
         ('mqtt_pass', ''),
         ('mqtt_base_topic', 'zigbee2mqtt'),
-        ('z2m_url', 'localhost:8080')
+        ('z2m_url', 'localhost:8080'),
+        ('offline_timeout', '30')
     ]
     cursor.executemany('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', default_settings)
 
@@ -613,6 +627,7 @@ def on_message(client, userdata, msg):
             # Add to the runtime list so it appears immediately
             new_device = {'id': friendly_name, 'name': friendly_name, 'solution': friendly_name, 'state': 'unknown', 'voltage': 0, 'power': 0, 'linkquality': 0}
             devices.append(new_device)
+            device['last_seen'] = datetime.now()
             LAST_UPDATE_TIMESTAMP = datetime.now() # Trigger refresh for new device
             device = new_device # Use this new device for the rest of the function
         
@@ -625,6 +640,7 @@ def on_message(client, userdata, msg):
                 if device.get('state') != new_state:
                     device['state'] = new_state
                     LAST_UPDATE_TIMESTAMP = datetime.now()
+                    device['last_seen'] = datetime.now()
                     #print(f"State of {friendly_name} updated to {device['state']}")
             
             # Update other attributes
@@ -634,6 +650,7 @@ def on_message(client, userdata, msg):
                 device['power'] = payload['power']
             if 'linkquality' in payload:
                 device['linkquality'] = payload['linkquality']
+            device['last_seen'] = datetime.now()
 
         except json.JSONDecodeError:
             # Not a JSON payload, might be a simple state string
@@ -642,6 +659,7 @@ def on_message(client, userdata, msg):
                  new_state = (payload_str.upper() == 'ON')
                  if device.get('state') != new_state:
                     LAST_UPDATE_TIMESTAMP = datetime.now()
+                    device['last_seen'] = datetime.now()
                     device['state'] = new_state
                     #print(f"State of {friendly_name} updated to {device['state']}")
         except Exception as e:
@@ -731,6 +749,7 @@ def load_config_from_db():
     settings_from_db.setdefault("mqtt_pass", "")
     settings_from_db.setdefault("mqtt_base_topic", "zigbee2mqtt")
     settings_from_db.setdefault("z2m_url", "")
+    settings_from_db.setdefault("offline_timeout", "30")
 
     # Load devices
     devices_from_db = db.execute('SELECT * FROM devices ORDER BY solution COLLATE NOCASE').fetchall()
@@ -741,6 +760,7 @@ def load_config_from_db():
         device['voltage'] = 0
         device['power'] = 0
         device['linkquality'] = 0
+        device['last_seen'] = datetime.now()
 
     # Load schedules into a config-like dictionary for the scheduler
     schedules = get_schedules_from_db()
@@ -809,7 +829,7 @@ if config.get("autoUpdate", False):
     check_update(config["autoUpdateURL"])
 
 # Initial scan for devices on startup
-scan_and_save_new_devices()
+#scan_and_save_new_devices()
 # Reload devices from DB after scan
 load_config_from_db()
 
@@ -819,6 +839,7 @@ init_mqtt_client()
 #print(devices)
 scheduler = BackgroundScheduler(timezone="UTC")
 updateApScheduler()
+scheduler.add_job(check_offline_devices, 'interval', seconds=10)
 # Run the scheduler in a separate thread
 Thread(target=start_scheduler).start()
 print("Scheduler Started")
