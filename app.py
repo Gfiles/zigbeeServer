@@ -173,10 +173,17 @@ def settings():
         current_devices = [dict(row) for row in devices_from_db]
 
         # Update general settings
-        for key in ['title', 'refresh', 'port', 'minButtonWidth', 'autoUpdate', 'autoUpdateURL', 'mqtt_host', 'mqtt_port', 'mqtt_user', 'mqtt_pass', 'mqtt_base_topic', 'z2m_url', 'offline_timeout', 'open_on_startup']:
+        all_settings_keys = ['title', 'refresh', 'port', 'minButtonWidth', 'autoUpdate', 'autoUpdateURL', 'mqtt_host', 'mqtt_port', 'mqtt_user', 'mqtt_pass', 'mqtt_base_topic', 'z2m_url', 'offline_timeout', 'open_on_startup']
+        boolean_settings = ['autoUpdate', 'open_on_startup']
+
+        for key in all_settings_keys:
             if key in request.form:
-                # The 'devices' list is reloaded inside load_config_from_db, so we can use it here.
-                update_setting(key, request.form[key])
+                # For checkboxes, the value will be 'on' or 'True'. We'll store it as 'True'.
+                value = 'True' if key in boolean_settings else request.form[key]
+                update_setting(key, value)
+            elif key in boolean_settings:
+                # If a boolean checkbox is not in the form, it means it was unchecked.
+                update_setting(key, 'False')
 
         # Update device solutions
         for device in current_devices:

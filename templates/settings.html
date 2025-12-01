@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
@@ -10,6 +10,10 @@
             href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
         />
         <style>
+            h3 {
+                border-bottom: 2px solid #ccc;
+                padding-bottom: 5px;
+            }
             .tuya-button {
                 margin: 10px;
                 min-width: 320px;
@@ -31,6 +35,9 @@
             .w3-input {
                 max-width: 90%;
                 margin: auto;
+            }
+            .w3-check {
+                margin-left: 5%;
             }
             .w3-button {
                 min-width: 100px;
@@ -78,6 +85,23 @@
                 top: 10px;
                 right: 10px;
             }
+            .setting-row {
+                display: flex;
+                align-items: center;
+                margin-bottom: 15px;
+            }
+            .setting-row label {
+                flex: 0 0 250px; /* Do not grow, do not shrink, base width of 250px */
+                text-align: left;
+                margin-right: 20px;
+            }
+            .setting-input-area {
+                flex: 1;
+                text-align: left;
+            }
+            .w3-input, .w3-select {
+                background-color: #f1f1f1 !important;
+            }
         </style>
         <script>
             document.addEventListener('DOMContentLoaded', function() {
@@ -118,40 +142,43 @@
         </div>
         <div class="w3-container w3-center w3-padding-16">
             <form method="POST" class="w3-container w3-card-4 w3-padding w3-white" style="max-width: 90%; margin: auto; border-radius: 10px;">
-                {% for key, value in config.items() %}
-                    {% if key in ['exclude_from_all', 'schedules', 'open_on_startup'] %}
-                        
-                    {% else %}
-                    <label class="w3-text-teal" for="{{ key }}">{{ key }}</label>
-                    <input
-                        class="w3-input w3-border w3-round"
-                        type="text"
-                        id="{{ key }}"
-                        name="{{ key }}"
-                        value="{{ value }}"
-                    />
-                    {% endif %}
-                {% endfor %}
-                
-                <!-- Special handling for open_on_startup -->
-                <label class="w3-text-teal" for="open_on_startup">open_on_startup</label>
-                <select class="w3-select w3-border w3-round" id="open_on_startup" name="open_on_startup">
-                    <option value="True" {% if config.get('open_on_startup', 'True') == 'True' %}selected{% endif %}>
-                        Enabled
-                    </option>
-                    <option value="False" {% if config.get('open_on_startup', 'True') == 'False' %}selected{% endif %}>
-                        Disabled
-                    </option>
-                </select>
+                <!-- General Settings -->
+                <h3>General</h3>
+                <div class="setting-row"><label class="w3-text-teal" for="title">Page Title</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="text" id="title" name="title" value="{{ config.title }}"></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="port">Server Port</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="number" id="port" name="port" value="{{ config.port }}"></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="minButtonWidth">Min Button Width (px)</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="number" id="minButtonWidth" name="minButtonWidth" value="{{ config.minButtonWidth }}"></div></div>
+
+                <!-- Behavior Settings -->
+                <h3>Behavior</h3>
+                <div class="setting-row"><label class="w3-text-teal" for="refresh">Page Refresh Poll (sec)</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="number" id="refresh" name="refresh" value="{{ config.refresh }}"></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="offline_timeout">Offline Timeout (sec)</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="number" id="offline_timeout" name="offline_timeout" value="{{ config.offline_timeout }}"></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="open_on_startup">Open Dashboard on Startup</label><div class="setting-input-area"><input class="w3-check" type="checkbox" id="open_on_startup" name="open_on_startup" {% if config.get('open_on_startup') == 'True' %}checked{% endif %}></div></div>
+
+                <!-- MQTT Settings -->
+                <h3>MQTT</h3>
+                <div class="setting-row"><label class="w3-text-teal" for="mqtt_host">MQTT Host</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="text" id="mqtt_host" name="mqtt_host" value="{{ config.mqtt_host }}"></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="mqtt_port">MQTT Port</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="number" id="mqtt_port" name="mqtt_port" value="{{ config.mqtt_port }}"></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="mqtt_user">MQTT User</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="text" id="mqtt_user" name="mqtt_user" value="{{ config.mqtt_user }}"></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="mqtt_pass">MQTT Password</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="password" id="mqtt_pass" name="mqtt_pass" value="{{ config.mqtt_pass }}"></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="mqtt_base_topic">MQTT Base Topic</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="text" id="mqtt_base_topic" name="mqtt_base_topic" value="{{ config.mqtt_base_topic }}"></div></div>
+
+                <!-- Update Settings -->
+                <h3>Updates</h3>
+                <div class="setting-row"><label class="w3-text-teal" for="autoUpdate">Auto Update</label><div class="setting-input-area"><input class="w3-check" type="checkbox" id="autoUpdate" name="autoUpdate" {% if config.get('autoUpdate') == 'True' %}checked{% endif %}></div></div>
+                <div class="setting-row"><label class="w3-text-teal" for="autoUpdateURL">Auto Update URL</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="text" id="autoUpdateURL" name="autoUpdateURL" value="{{ config.autoUpdateURL }}"></div></div>
+
+                <!-- Zigbee2MQTT Settings -->
+                <h3>Integrations</h3>
+                <div class="setting-row"><label class="w3-text-teal" for="z2m_url">Zigbee2MQTT URL</label><div class="setting-input-area"><input class="w3-input w3-border w3-round" type="text" id="z2m_url" name="z2m_url" value="{{ config.z2m_url }}"></div></div>
 
                 {% if devices %}
-                    <label class="w3-text-teal">Exclude from 'All On/Off'</label>
+                    <h3>'All On/Off' Exclusions</h3>
                     <div class="exclude-list">
-                        <select name="exclude_from_all" multiple size="8" class="w3-select w3-border w3-margin-bottom" style="height: auto;">
+                        <select name="exclude_from_all" multiple size="8" class="w3-select w3-border w3-margin-bottom" style="height: auto; max-width: 50%; align-items: center;">
                             {% for device in devices %}
                                 <option value="{{ device.id }}"
                                     {% if device.id in config.get('exclude_from_all', []) %}selected{% endif %}>
-                                    {{ device.solution }}
+                                    {{ device.solution or device.name }}
                                 </option>
                             {% endfor %}
                         </select>
@@ -159,7 +186,7 @@
                 {% endif %}
 
                 {% if devices %}
-                <label class="w3-text-teal">Device Names</label>
+                <h3>Device Names</h3>
                     <div class="device-list">
                         {% for device in devices %}
                             <div class="device-row">
