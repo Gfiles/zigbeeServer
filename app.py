@@ -598,17 +598,18 @@ def download_and_replace(download_url):
     with open(tmp_path, "wb") as f:
         shutil.copyfileobj(r.raw, f)
     print("Download complete.")
-    # Create a batch file to replace the running exe after exit for windows
-    bat_path = exe_path + ".bat"
-    with open(bat_path, "w") as bat:
-        bat.write(f"""@echo off
+    if OS == "Windows":
+        # Create a batch file to replace the running exe after exit for windows
+        bat_path = exe_path + ".bat"
+        with open(bat_path, "w") as bat:
+            bat.write(f"""@echo off
 ping 127.0.0.1 -n 3 > nul
 move /Y "{tmp_path}" "{exe_path}"
 start "" "{exe_path}"
 del "%~f0"
 """)
-    print("Restarting with update...")
-    os.startfile(bat_path)
+        print("Restarting with update...")
+        os.startfile(bat_path)
 
     # Create a batch file to replace the running exe after exit for linux
     if OS == "Linux":
