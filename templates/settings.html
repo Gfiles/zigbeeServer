@@ -71,8 +71,8 @@
                 margin: 10px;
             }
             .exclude-list {
-                text-align: left;
-                max-width: 90%;
+                text-align: center;
+                max-width: 50%;
                 margin: auto;
             }
             .header-icon-left {
@@ -173,8 +173,8 @@
 
                 {% if devices %}
                     <h3>'All On/Off' Exclusions</h3>
-                    <div class="exclude-list">
-                        <select name="exclude_from_all" multiple size="8" class="w3-select w3-border w3-margin-bottom" style="height: auto; max-width: 50%; align-items: center;">
+                    <div class="exclude-list" >
+                        <select name="exclude_from_all" multiple size="8" class="w3-select w3-border w3-margin-bottom" style="height: auto;">
                             {% for device in devices %}
                                 <option value="{{ device.id }}"
                                     {% if device.id in config.get('exclude_from_all', []) %}selected{% endif %}>

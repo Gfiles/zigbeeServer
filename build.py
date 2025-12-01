@@ -73,7 +73,7 @@ else:
         '--onefile', 
         '--clean',
         '--add-data', 'templates*:.', 
-        '--add-data', 'icon.png;.',
+        '--add-data', 'icon.png:.',
         '--icon=icon.png',
         MAIN_SCRIPT
     ]
