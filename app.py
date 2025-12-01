@@ -34,7 +34,7 @@ except ValueError:
      subprocess.run(['sudo', 'apt', 'install', '-y', 'libayatana-appindicator3-1', 'gir1.2-ayatanaappindicator3-0.1'])
 
 # ---------- Start Configurations ---------- #
-VERSION = "2025.11.27"
+VERSION = "2025.12.01"
 print(f"Zigbee Server Version: {VERSION}")
 APP_NAME = "ZigbeeServer"
 
@@ -392,8 +392,8 @@ def check_offline_devices():
     """Checks for devices that have not sent an update recently and marks them as offline."""
     global devices, LAST_UPDATE_TIMESTAMP, config
     now = datetime.now()
-    # Use a default of 30 seconds if the setting is missing
-    timeout_seconds = int(config.get('offline_timeout', 30))
+    # Use a default of 60 seconds if the setting is missing
+    timeout_seconds = int(config.get('offline_timeout', 60))
     for device in devices:
         if now - device.get('last_seen', now) > timedelta(seconds=timeout_seconds):
             if device['state'] != 'offline':
@@ -673,10 +673,10 @@ def on_message(client, userdata, msg):
 
             # Add to the runtime list so it appears immediately
             new_device = {'id': friendly_name, 'name': friendly_name, 'solution': friendly_name, 'state': 'unknown', 'voltage': 0, 'power': 0, 'linkquality': 0}
+            device = new_device # Assign the new device dictionary to the device variable
             devices.append(new_device)
             device['last_seen'] = datetime.now()
             LAST_UPDATE_TIMESTAMP = datetime.now() # Trigger refresh for new device
-            device = new_device # Use this new device for the rest of the function
         
         try:
             payload = json.loads(msg.payload.decode())
@@ -796,7 +796,7 @@ def load_config_from_db():
     settings_from_db.setdefault("mqtt_pass", "")
     settings_from_db.setdefault("mqtt_base_topic", "zigbee2mqtt")
     settings_from_db.setdefault("z2m_url", "")
-    settings_from_db.setdefault("offline_timeout", "30")
+    settings_from_db.setdefault("offline_timeout", "60")
     settings_from_db.setdefault("open_on_startup", "True")
 
     # Load devices
