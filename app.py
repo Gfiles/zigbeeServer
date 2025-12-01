@@ -213,6 +213,7 @@ def delete_device(device_id):
 @app.route("/schedule", methods=["GET", "POST"])
 def schedule():
     global devices, config
+    error_message = None
     if request.method == "POST":
         schedules = []
         schedule_ids = request.form.getlist("schedule_id")
@@ -220,6 +221,7 @@ def schedule():
         schedule_actions = request.form.getlist("schedule_action")
         schedule_times = request.form.getlist("schedule_time")
         timezone_offset_minutes = int(request.form.get('timezone_offset', 0))
+        submitted_schedules = [] # To hold the data from the form
 
         for i in range(len(schedule_ids)):
             sid = schedule_ids[i]
@@ -230,6 +232,29 @@ def schedule():
             days = request.form.getlist(f"schedule_days_{i}")
             time_str = schedule_times[i]
             device_list = request.form.getlist(f"schedule_devices_{i}")
+
+            # Store submitted data to re-render if validation fails
+            submitted_schedules.append({
+                "id": sid,
+                "name": name,
+                "action": action,
+                "days": days,
+                "time": time_str, # Keep local time for re-rendering
+                "devices": device_list
+            })
+
+            # Validation for each schedule entry
+            if not time_str:
+                error_message = f"Validation failed for schedule '{name}': Time is required."
+                break
+            if not days:
+                error_message = f"Validation failed for schedule '{name}': At least one day must be selected."
+                break
+            if not device_list:
+                error_message = f"Validation failed for schedule '{name}': At least one device must be selected."
+                break
+            if not name:
+                name = f"Schedule {i+1}"
             
             # Correctly convert user's local time to UTC using the browser's offset
             local_dt = datetime.strptime(time_str, '%H:%M')
@@ -246,6 +271,10 @@ def schedule():
                 "devices": device_list
             })
         
+        if error_message:
+            # If validation fails, re-render the page with the error
+            return render_template("schedule.html", schedules=submitted_schedules, devices=devices, title="Schedule Configuration", error=error_message)
+
         # Save schedules to DB
         db = get_db_conn()
         cursor = db.cursor()
@@ -268,7 +297,7 @@ def schedule():
     
     # GET method: show schedules and devices
     schedules = get_schedules_from_db()
-    return render_template("schedule.html", schedules=schedules, devices=devices, title="Schedule Configuration")
+    return render_template("schedule.html", schedules=schedules, devices=devices, title="Schedule Configuration", error=error_message)
 
 @app.route("/check-for-updates")
 def check_for_updates():

@@ -36,25 +36,29 @@
                 offsetInput.value = offsetMinutes;
             }
 
-            // Convert displayed times from UTC to the user's local time
-            const timeInputs = document.querySelectorAll('input[name="schedule_time"]');
-            timeInputs.forEach(input => {
-                if (input.value) { // Only convert if there's a pre-filled value
-                    const utcTime = input.value;
-                    const [hours, minutes] = utcTime.split(':').map(Number);
-                    
-                    const now = new Date();
-                    // Create a date object for today, but with the hours and minutes set to the UTC time
-                    const dateInUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours, minutes));
-                    
-                    // The browser's JS engine automatically converts this to the local timezone.
-                    // Now, format it back to HH:MM for the input field.
-                    const localHours = dateInUtc.getHours().toString().padStart(2, '0');
-                    const localMinutes = dateInUtc.getMinutes().toString().padStart(2, '0');
-                    
-                    input.value = `${localHours}:${localMinutes}`;
-                }
-            });
+            // Only convert UTC times to local on initial load, not on a validation error postback
+            const hasError = {{ 'true' if error else 'false' }};
+            if (!hasError) {
+                // Convert displayed times from UTC to the user's local time
+                const timeInputs = document.querySelectorAll('input[name="schedule_time"]');
+                timeInputs.forEach(input => {
+                    if (input.value) { // Only convert if there's a pre-filled value
+                        const utcTime = input.value;
+                        const [hours, minutes] = utcTime.split(':').map(Number);
+                        
+                        const now = new Date();
+                        // Create a date object for today, but with the hours and minutes set to the UTC time
+                        const dateInUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours, minutes));
+                        
+                        // The browser's JS engine automatically converts this to the local timezone.
+                        // Now, format it back to HH:MM for the input field.
+                        const localHours = dateInUtc.getHours().toString().padStart(2, '0');
+                        const localMinutes = dateInUtc.getMinutes().toString().padStart(2, '0');
+                        
+                        input.value = `${localHours}:${localMinutes}`;
+                    }
+                });
+            }
             checkInternetQuality();
         });
 
@@ -98,7 +102,7 @@
                     <option value="off">Off</option>
                 </select>
                 <label>Days:</label>
-                <select name="schedule_days_${counter}" multiple size="7" class="w3-select w3-border w3-margin-bottom">
+                <select name="schedule_days_${counter}" multiple size="7" class="w3-select w3-border w3-margin-bottom" required>
                     <option value="mon">Monday</option>
                     <option value="tue">Tuesday</option>
                     <option value="wed">Wednesday</option>
@@ -110,7 +114,7 @@
                 <label>Time (24h format HH:MM):</label>
                 <input type="time" name="schedule_time" class="w3-input w3-border w3-margin-bottom" required pattern="[0-9]{2}:[0-9]{2}" />
                 <label>Switches:</label>
-                <select name="schedule_devices_${counter}" multiple size="5" class="w3-select w3-border w3-margin-bottom" style="height: auto;">
+                <select name="schedule_devices_${counter}" multiple size="5" class="w3-select w3-border w3-margin-bottom" style="height: auto;" required>
                     {% for device in devices %}
                         <option value="{{ device.id }}"> 
                             {{ device.solution }} 
@@ -153,7 +157,7 @@
                         <option value="off" {% if schedule.action == 'off' %}selected{% endif %}>Off</option>
                     </select>
                     <label>Days:</label>
-                    <select name="schedule_days_{{ loop.index0 }}" multiple size="7" class="w3-select w3-border w3-margin-bottom">
+                    <select name="schedule_days_{{ loop.index0 }}" multiple size="7" class="w3-select w3-border w3-margin-bottom" required>
                         <option value="mon" {% if 'mon' in schedule.days %}selected{% endif %}>Monday</option>
                         <option value="tue" {% if 'tue' in schedule.days %}selected{% endif %}>Tuesday</option>
                         <option value="wed" {% if 'wed' in schedule.days %}selected{% endif %}>Wednesday</option>
@@ -165,7 +169,7 @@
                     <label>Time (24h format HH:MM):</label>
                     <input type="time" name="schedule_time" value="{{ schedule.time }}" class="w3-input w3-border w3-margin-bottom" required pattern="[0-9]{2}:[0-9]{2}" />
                     <label>Switches:</label> 
-                    <select name="schedule_devices_{{ loop.index0 }}" multiple size="5" class="w3-select w3-border w3-margin-bottom" style="height: auto;">
+                    <select name="schedule_devices_{{ loop.index0 }}" multiple size="5" class="w3-select w3-border w3-margin-bottom" style="height: auto;" required>
                         {% for device in devices %}
                         <option value="{{ device.id }}"
                             {% if device.id in schedule.devices %}
