@@ -857,12 +857,12 @@ def run_tray_icon():
     try:
         image = Image.open(resource_path("icon.png"))
         menu = (
-            item(f"Internet Tester: v_{VERSION}", None, enabled=False),
+            item(f"APP_NAME: v_{VERSION}", None, enabled=False),
             Menu.SEPARATOR,
             item('Open Dashboard', open_browser, default=True),
             item('Exit', exit_action)
         )
-        tray_icon = TrayIcon(APP_NAME, image, f"{APP_NAME} v{VERSION}", menu)
+        tray_icon = TrayIcon(APP_NAME, image, f"{APP_NAME} v_{VERSION}", menu)
         logging.info("Starting system tray icon.")
         tray_icon.run()
     except Exception as e:
