@@ -857,7 +857,7 @@ def run_tray_icon():
     try:
         image = Image.open(resource_path("icon.png"))
         menu = (
-            item(f"APP_NAME: v_{VERSION}", None, enabled=False),
+            item(f"{APP_NAME} v_{VERSION}", None, enabled=False),
             Menu.SEPARATOR,
             item('Open Dashboard', open_browser, default=True),
             item('Exit', exit_action)
