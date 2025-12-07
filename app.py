@@ -237,7 +237,6 @@ def schedule():
         schedule_names = request.form.getlist("schedule_name")
         schedule_actions = request.form.getlist("schedule_action")
         schedule_times = request.form.getlist("schedule_time")
-        timezone_offset_minutes = int(request.form.get('timezone_offset', 0))
         submitted_schedules = [] # To hold the data from the form
 
         for i in range(len(schedule_ids)):
@@ -251,6 +250,7 @@ def schedule():
             device_list = request.form.getlist(f"schedule_devices_{i}")
 
             # Store submitted data to re-render if validation fails
+            
             submitted_schedules.append({
                 "id": sid,
                 "name": name,
@@ -273,21 +273,15 @@ def schedule():
             if not name:
                 name = f"Schedule {i+1}"
             
-            # Correctly convert user's local time to UTC using the browser's offset
-            local_dt = datetime.strptime(time_str, '%H:%M')
-            # getTimezoneOffset() returns a positive value for timezones BEHIND UTC (e.g., Brazil), so we must ADD the offset to get to UTC.
-            utc_dt = local_dt + timedelta(minutes=timezone_offset_minutes)
-            utc_time_str = utc_dt.strftime('%H:%M') # Use the converted UTC time
-            #print(f"Received local time {time_str} with offset {timezone_offset_minutes} mins. Converted to UTC: {utc_time_str}")
+            # Time is saved directly as local time string
             schedules.append({
                 "id": sid,
                 "name": name,
                 "action": action,
                 "days": days,
-                "time": utc_time_str, # Use the converted UTC time
+                "time": time_str, # Use local time
                 "devices": device_list
             })
-        
         if error_message:
             # If validation fails, re-render the page with the error
             return render_template("schedule.html", schedules=submitted_schedules, devices=devices, title="Schedule Configuration", error=error_message)
@@ -878,6 +872,7 @@ def run_web_server():
         threading.Timer(1, open_browser).start()
     else:
         logging.info(f"Dashboard is available at: http://127.0.0.1:{port}/")
+        print(f"Dashboard is available at: http://127.0.0.1:{port}/")
     serve(app, host=host, port=port)
 # ---------- End Functions ---------- #
 
@@ -940,7 +935,7 @@ load_config_from_db()
 init_mqtt_client()
 
 #print(devices)
-scheduler = BackgroundScheduler(timezone="UTC")
+scheduler = BackgroundScheduler()
 updateApScheduler()
 scheduler.add_job(check_offline_devices, 'interval', seconds=10)
 # Run the scheduler in a separate thread
