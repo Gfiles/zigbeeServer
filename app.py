@@ -20,18 +20,21 @@ import sys
 import jinja2
 import sqlite3
 import requests #pip install requests
-import paho.mqtt.client as mqtt #pip install paho-mqtt
+import requests #pip install requests
 from waitress import serve #pip install waitress
 from apscheduler.schedulers.background import BackgroundScheduler #pip install apscheduler
 from threading import Thread
 import platform
 import shutil
 from PIL import Image #pip install pillow
+import serial.tools.list_ports
 
 try:
     from pystray import Icon as TrayIcon, MenuItem as item, Menu #pip install pystray
 except ValueError:
      subprocess.run(['sudo', 'apt', 'install', '-y', 'libayatana-appindicator3-1', 'gir1.2-ayatanaappindicator3-0.1'])
+
+from zigbee_manager import ZigbeeManager
 
 # ---------- Start Configurations ---------- #
 VERSION = "2025.12.01"
@@ -54,8 +57,7 @@ template_env = jinja2.Environment(loader=template_loader)
 
 app = Flask(__name__)
 api = Api(app)
-mqtt_client = None
-mqtt_connection_error = None
+zigbee_manager = None
 LAST_UPDATE_TIMESTAMP = datetime.now()
 
 # ---------- End Configurations ---------- #
@@ -64,8 +66,13 @@ class On(Resource):
     def get(self, pk):
         try:
             switch = switches.get(pk)
-            switch.turn_on()
-            logging.info(f"Switch {pk} turned on")
+            if zigbee_manager and config.get('zigbee_enabled') == 'True':
+                # Check if pk is a Zigbee IEEE address
+                zigbee_manager.set_state(pk, True)
+                logging.info(f"Zigbee device {pk} turned on")
+            else:
+                switch.turn_on()
+                logging.info(f"Switch {pk} turned on")
         except:
             return "error"
         return f"{pk} Switch Turned On"
@@ -74,8 +81,13 @@ class Off(Resource):
     def get(self, pk):
         try:
             switch = switches.get(pk)
-            switch.turn_off()
-            logging.info(f"Switch {pk} turned off")
+            if zigbee_manager and config.get('zigbee_enabled') == 'True':
+                # Check if pk is a Zigbee IEEE address
+                zigbee_manager.set_state(pk, False)
+                logging.info(f"Zigbee device {pk} turned off")
+            else:
+                switch.turn_off()
+                logging.info(f"Switch {pk} turned off")
         except:
             return "error"
         return f"{pk} Switch Turned Off"
@@ -113,7 +125,7 @@ def index():
             device.get("id", "")
             # The state can be True, False, 'unknown', or 'offline'
         ])
-    return render_template("index.html", switches=switchInfo, title=title, minButtonWidth=minButtonWidth, mqtt_error=mqtt_connection_error, last_update=LAST_UPDATE_TIMESTAMP.isoformat())
+    return render_template("index.html", switches=switchInfo, title=title, minButtonWidth=minButtonWidth, last_update=LAST_UPDATE_TIMESTAMP.isoformat())
 
 # Route for toggling a switch
 @app.route("/toggle/<pk>")
@@ -123,15 +135,13 @@ def toggle_switch(pk):
         if device["id"] == pk: # pk is the friendly_name
             current_state = device.get("state", False)
             new_state_str = "OFF" if (current_state is True or str(current_state).lower() == 'on') else "ON"
+            new_state_bool = (new_state_str == "ON")
             
-            topic = f"{config.get('mqtt_base_topic', 'zigbee2mqtt')}/{pk}/set"
-            payload = json.dumps({"state": new_state_str})
-            
-            if mqtt_client:
-                mqtt_client.publish(topic, payload)
-                logging.info(f"Published to {topic}: {payload}")
+            if zigbee_manager and config.get('zigbee_enabled') == 'True':
+                zigbee_manager.set_state(pk, new_state_bool)
+                logging.info(f"Zigbee: Toggled {pk} to {new_state_str}")
             else:
-                logging.error("MQTT client not available, cannot toggle switch.")
+                logging.error("Zigbee not enabled, cannot toggle switch.")
 
             logging.info(f"Request info: {getRequestInfo()}")
             break
@@ -151,16 +161,22 @@ def all_switches(action):
         
         # We only act on devices that are plugs/switches (i.e., support on/off)
         if device.get("power") is not None: # A simple check if it's a controllable switch
-            topic = f"{config.get('mqtt_base_topic', 'zigbee2mqtt')}/{device['id']}/set"
-            payload = json.dumps({"state": action.upper()})
-
-            if mqtt_client:
-                mqtt_client.publish(topic, payload)
-                logging.info(f"Published to {topic}: {payload}")
+            if zigbee_manager and config.get('zigbee_enabled') == 'True':
+                zigbee_manager.set_state(device['id'], action.lower() == "on")
+                logging.info(f"Zigbee: Set {device['id']} to {action}")
             else:
-                logging.error(f"MQTT client not available, cannot control {device['id']}.")
+                logging.error(f"Zigbee not enabled, cannot control {device['id']}.")
 
     return redirect("/")
+
+@app.route("/pair")
+def pair_devices():
+    if zigbee_manager and config.get('zigbee_enabled') == 'True':
+        zigbee_manager.permit_joins(60)
+        logging.info("Zigbee: Pairing mode enabled for 60 seconds")
+        return "Pairing mode enabled for 60 seconds. Please put your device in pairing mode."
+    else:
+        return "Zigbee is not enabled or manager not started.", 400
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
@@ -173,8 +189,8 @@ def settings():
         current_devices = [dict(row) for row in devices_from_db]
 
         # Update general settings
-        all_settings_keys = ['title', 'refresh', 'port', 'minButtonWidth', 'autoUpdate', 'autoUpdateURL', 'mqtt_host', 'mqtt_port', 'mqtt_user', 'mqtt_pass', 'mqtt_base_topic', 'z2m_url', 'offline_timeout', 'open_on_startup']
-        boolean_settings = ['autoUpdate', 'open_on_startup']
+        all_settings_keys = ['title', 'refresh', 'port', 'minButtonWidth', 'autoUpdate', 'autoUpdateURL', 'z2m_url', 'offline_timeout', 'open_on_startup', 'zigbee_enabled', 'zigbee_port', 'zigbee_radio_type', 'zigbee_database']
+        boolean_settings = ['autoUpdate', 'open_on_startup', 'zigbee_enabled']
 
         for key in all_settings_keys:
             if key in request.form:
@@ -201,15 +217,20 @@ def settings():
 
         # Reload global config variables
         load_config_from_db()
-        # Restart MQTT client with new settings
-        init_mqtt_client()
+        # Restart Zigbee Manager with new settings
+        init_zigbee_manager()
         logging.info("Settings updated successfully")
         return redirect("/")
     
     # GET Request: Ensure we have the latest data from the DB
     load_config_from_db()
     db.close()
-    return render_template("settings.html", config=config, devices=devices, title="Settings")
+    
+    # Get available serial ports
+    ports = serial.tools.list_ports.comports()
+    available_ports = [port.device for port in ports]
+    
+    return render_template("settings.html", config=config, devices=devices, title="Settings", available_ports=available_ports)
 
 @app.route("/delete_device/<device_id>")
 def delete_device(device_id):
@@ -372,15 +393,11 @@ def executeSchedule(action, scheduledDevices):
     print(f"SCHEDULED: Executing action {action} for devices: {scheduledDevices}")
     for device_id in scheduledDevices:
         # device_id is the friendly_name
-        topic = f"{config.get('mqtt_base_topic', 'zigbee2mqtt')}/{device_id}/set"
-        payload = json.dumps({"state": action.upper()})
-        if mqtt_client:
-            mqtt_client.publish(topic, payload)
-            logging.info(f"SCHEDULED: Published to {topic}: {payload}")
-            print(f"SCHEDULED: Action {action} executed on device {device_id}")
+        if zigbee_manager and config.get('zigbee_enabled') == 'True':
+            zigbee_manager.set_state(device_id, action.lower() == "on")
+            logging.info(f"SCHEDULED: Zigbee: Set {device_id} to {action}")
         else:
-            logging.error(f"SCHEDULED: MQTT client not available, cannot control {device_id}.")
-            print(f"SCHEDULED: Error executing action {action} on device {device_id}: MQTT client not available.")
+            logging.error(f"SCHEDULED: Zigbee not enabled, cannot control {device_id}.")
 
 def check_offline_devices():
     """Checks for devices that have not sent an update recently and marks them as offline."""
@@ -426,14 +443,13 @@ def init_db():
         ('minButtonWidth', '300'),
         ('autoUpdate', 'True'),
         ('autoUpdateURL', 'https://proj.ydreams.global/ydreams/apps/servers/tuyaServer_deb'),
-        ('mqtt_host', 'localhost'),
-        ('mqtt_port', '1883'),
-        ('mqtt_user', ''),
-        ('mqtt_pass', ''),
-        ('mqtt_base_topic', 'zigbee2mqtt'),
         ('z2m_url', 'localhost:8080'),
         ('offline_timeout', '30'),
-        ('open_on_startup', 'True')
+        ('open_on_startup', 'True'),
+        ('zigbee_enabled', 'False'),
+        ('zigbee_port', 'auto'),
+        ('zigbee_radio_type', 'znp'),
+        ('zigbee_database', 'zigbee.db')
     ]
     cursor.executemany('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', default_settings)
 
@@ -620,125 +636,49 @@ mv -f "{tmp_path}" "{exe_path}"
 
     sys.exit(0)
 
-# ---------- MQTT Functions ---------- #
-
-def on_connect(client, userdata, flags, reason_code, properties):
-    global mqtt_connection_error, LAST_UPDATE_TIMESTAMP
-    # A reason_code of 0 means success.
-    if reason_code == 0:
-        print("Connected to MQTT Broker!")
-        logging.info("Connected to MQTT Broker!")
-        base_topic = config.get('mqtt_base_topic', 'zigbee2mqtt')
-        # Subscribe to device status topics
-        client.subscribe(f"{base_topic}/+") 
-        logging.info(f"Subscribed to device topics: {base_topic}/+")
-
-        mqtt_connection_error = None
-        LAST_UPDATE_TIMESTAMP = datetime.now() # Force refresh on connect/reconnect
-    else:
-        print(f"Failed to connect, return code {reason_code}\n")
-        logging.error(f"Failed to connect to MQTT Broker, return code {reason_code}")
-
-def on_message(client, userdata, msg):
-    #print(f"Received `{msg.payload.decode()}` from `{msg.topic}` topic")
-    topic_parts = msg.topic.split('/')
-    global LAST_UPDATE_TIMESTAMP
-    base_topic = config.get('mqtt_base_topic', 'zigbee2mqtt')
-
-    # We are interested in topics like 'zigbee2mqtt/DEVICE_NAME'
-    # Ignore bridge status and other longer topics for auto-discovery
-    if len(topic_parts) == 2 and topic_parts[0] == base_topic:
-        friendly_name = topic_parts[1]
-        
-        # Find the device in our global list
-        device = next((d for d in devices if d.get('id') == friendly_name), None)
-        
-        # If device is not tracked, add it automatically
-        if not device:
-            # Don't auto-add the bridge device
-            if friendly_name == 'bridge':
-                return
-
-            logging.info(f"New device '{friendly_name}' detected. Adding to database.")
-            db = get_db_conn()
-            db.execute('INSERT OR IGNORE INTO devices (id, name, solution) VALUES (?, ?, ?)',
-                       (friendly_name, friendly_name, friendly_name))
-            db.commit()
-            db.close()
-
-            # Add to the runtime list so it appears immediately
-            new_device = {'id': friendly_name, 'name': friendly_name, 'solution': friendly_name, 'state': 'unknown', 'voltage': 0, 'power': 0, 'linkquality': 0}
-            device = new_device # Assign the new device dictionary to the device variable
-            devices.append(new_device)
-            device['last_seen'] = datetime.now()
-            LAST_UPDATE_TIMESTAMP = datetime.now() # Trigger refresh for new device
-        
-        try:
-            payload = json.loads(msg.payload.decode())
-            #print(f"MQTT Message for {friendly_name}: {payload}")
-            # Update state
-            if 'state' in payload:
-                new_state = (payload['state'] == 'ON')
-                if device.get('state') != new_state:
-                    device['state'] = new_state
-                    LAST_UPDATE_TIMESTAMP = datetime.now()
-                    device['last_seen'] = datetime.now()
-                    #print(f"State of {friendly_name} updated to {device['state']}")
-            
-            # Update other attributes
-            if 'voltage' in payload:
-                device['voltage'] = payload['voltage']
-            if 'power' in payload:
-                device['power'] = payload['power']
-            if 'linkquality' in payload:
-                device['linkquality'] = payload['linkquality']
-            device['last_seen'] = datetime.now()
-
-        except json.JSONDecodeError:
-            # Not a JSON payload, might be a simple state string
-            payload_str = msg.payload.decode()
-            if payload_str.upper() in ['ON', 'OFF']:
-                 new_state = (payload_str.upper() == 'ON')
-                 if device.get('state') != new_state:
-                    LAST_UPDATE_TIMESTAMP = datetime.now()
-                    device['last_seen'] = datetime.now()
-                    device['state'] = new_state
-                    #print(f"State of {friendly_name} updated to {device['state']}")
-        except Exception as e:
-            logging.error(f"Error processing MQTT message for {friendly_name}: {e}")
-
-def init_mqtt_client():
-    global mqtt_client, mqtt_connection_error
-    if mqtt_client:
-        mqtt_client.loop_stop()
-        mqtt_client.disconnect()
-
-    host = config.get("mqtt_host")
-    if not host:
-        print("MQTT host not configured. MQTT client will not start.")
-        logging.warning("MQTT host not configured. MQTT client will not start.")
-        return
-
-    port = int(config.get("mqtt_port", 1883))
-    user = config.get("mqtt_user")
-    password = config.get("mqtt_pass")
-
-    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"tuya_server_{uuid4()}")
-    if user and password:
-        mqtt_client.username_pw_set(user, password)
-    mqtt_client.on_connect = on_connect
-    mqtt_client.on_message = on_message
-    
-    try:
-        mqtt_client.connect(host, port, 60)
-        mqtt_client.loop_start()
-        mqtt_connection_error = None # Clear error on successful connection attempt
-    except Exception as e:
-        mqtt_connection_error = f"Could not connect to MQTT broker at {host}:{port}. Please check settings. Error: {e}"
-        print(mqtt_connection_error)
-        logging.error(mqtt_connection_error)
-
 # ---------- End MQTT Functions ---------- #
+
+def zigbee_state_callback(ieee, model, device_obj, state=None):
+    global devices, LAST_UPDATE_TIMESTAMP
+    friendly_name = ieee
+    
+    # Find the device in our global list
+    device = next((d for d in devices if d.get('id') == friendly_name), None)
+    
+    # If device is not tracked, add it automatically
+    if not device:
+        logging.info(f"New Zigbee device '{friendly_name}' ({model}) detected. Adding to database.")
+        db = get_db_conn()
+        db.execute('INSERT OR IGNORE INTO devices (id, name, solution) VALUES (?, ?, ?)',
+                   (friendly_name, model if model else friendly_name, model if model else friendly_name))
+        db.commit()
+        db.close()
+
+        # Add to the runtime list so it appears immediately
+        new_device = {'id': friendly_name, 'name': model if model else friendly_name, 'solution': model if model else friendly_name, 'state': 'unknown', 'voltage': 0, 'power': 0, 'linkquality': 0}
+        device = new_device
+        devices.append(new_device)
+        device['last_seen'] = datetime.now()
+        LAST_UPDATE_TIMESTAMP = datetime.now()
+    
+    if state is not None:
+        if device.get('state') != state:
+            device['state'] = state
+            LAST_UPDATE_TIMESTAMP = datetime.now()
+    
+    device['last_seen'] = datetime.now()
+
+def init_zigbee_manager():
+    global zigbee_manager
+    if zigbee_manager:
+        zigbee_manager.stop()
+    
+    if config.get("zigbee_enabled") == "True":
+        logging.info("Initializing Zigbee Manager...")
+        zigbee_manager = ZigbeeManager(config, state_callback=zigbee_state_callback)
+        zigbee_manager.start()
+    else:
+        zigbee_manager = None
 
 def scan_and_save_new_devices():
     """Scans for new devices and adds them to the database."""
@@ -785,14 +725,13 @@ def load_config_from_db():
     minButtonWidth = int(settings_from_db.get("minButtonWidth", 300))
     settings_from_db.setdefault("autoUpdate", "False")
     settings_from_db.setdefault("autoUpdateURL", "")
-    settings_from_db.setdefault("mqtt_host", "")
-    settings_from_db.setdefault("mqtt_port", "1883")
-    settings_from_db.setdefault("mqtt_user", "")
-    settings_from_db.setdefault("mqtt_pass", "")
-    settings_from_db.setdefault("mqtt_base_topic", "zigbee2mqtt")
     settings_from_db.setdefault("z2m_url", "")
     settings_from_db.setdefault("offline_timeout", "60")
     settings_from_db.setdefault("open_on_startup", "True")
+    settings_from_db.setdefault("zigbee_enabled", "False")
+    settings_from_db.setdefault("zigbee_port", "auto")
+    settings_from_db.setdefault("zigbee_radio_type", "znp")
+    settings_from_db.setdefault("zigbee_database", "zigbee.db")
 
     # Load devices
     devices_from_db = db.execute('SELECT * FROM devices ORDER BY solution COLLATE NOCASE').fetchall()
@@ -850,9 +789,8 @@ def run_tray_icon():
     """Creates and runs the system tray icon."""
     try:
         image = Image.open(resource_path("icon.png"))
-        menu = (
-            item(f"{APP_NAME} v_{VERSION}", None, enabled=False),
-            Menu.SEPARATOR,
+        menu = Menu(
+            item(f"{APP_NAME} v_{VERSION}", lambda: None, enabled=False),
             item('Open Dashboard', open_browser, default=True),
             item('Exit', exit_action)
         )
@@ -931,8 +869,8 @@ if config.get("autoUpdate", False):
 # Reload devices from DB after scan
 load_config_from_db()
 
-# Initialize and start the MQTT client
-init_mqtt_client()
+# Initialize and start the Zigbee Manager
+init_zigbee_manager()
 
 #print(devices)
 scheduler = BackgroundScheduler()
