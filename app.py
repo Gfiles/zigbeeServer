@@ -442,7 +442,7 @@ def init_db():
         ('port', '5050'),
         ('minButtonWidth', '300'),
         ('autoUpdate', 'True'),
-        ('autoUpdateURL', 'https://proj.ydreams.global/ydreams/apps/servers/tuyaServer_deb'),
+        ('autoUpdateURL', 'https://proj.ydreams.global/ydreams/apps/servers/zigServer_deb'),
         ('z2m_url', 'localhost:8080'),
         ('offline_timeout', '30'),
         ('open_on_startup', 'True'),
